@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+  {% if mode == "edit" %}
+    <h1>Edit Task</h1>
+  {% else %}
+    <h1>Create Task</h1>
+  {% endif %}
+
+  <form method="post">
+      <div>
+          <label for="title">Title</label>
+          <input type="text" name="title" id="title"
+                 value="{% if mode == 'edit' %}{{ task['title'] }}{% endif %}" required>
+      </div>
+      <div>
+          <label for="description">Description</label>
+          <input type="text" name="description" id="description"
+                 value="{% if mode == 'edit' %}{{ task['description'] }}{% endif %}" required>
+      </div>
+
+      {% if mode == "edit" %}
+      <div>
+          <label for="status">Status</label>
+          <select name="status" id="status">
+              <option value="pending" {% if task['status'] == 'pending' %}selected{% endif %}>Pending</option>
+              <option value="in-progress" {% if task['status'] == 'in-progress' %}selected{% endif %}>In Progress</option>
+              <option value="done" {% if task['status'] == 'done' %}selected{% endif %}>Done</option>
+          </select>
+      </div>
+      {% endif %}
+
+      <button type="submit">
+        {% if mode == "edit" %}Save Changes{% else %}Create Task{% endif %}
+      </button>
+  </form>
+{% endblock %}

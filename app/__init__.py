@@ -106,4 +106,134 @@ def create_app():
         flash("You have been logged out.", "success")
         return redirect(url_for("login"))
 
+        # --------- Tasks - list ----------
+    @app.route("/tasks")
+    def tasks():
+        if g.user is None:
+            return redirect(url_for("login"))
+
+        db = get_db()
+        if g.user["role"] == "admin":
+            rows = db.execute(
+                """
+                SELECT tasks.*, users.username
+                FROM tasks
+                JOIN users ON tasks.user_id = users.id
+                ORDER BY tasks.created_at DESC
+                """
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """
+                SELECT tasks.*, users.username
+                FROM tasks
+                JOIN users ON tasks.user_id = users.id
+                WHERE tasks.user_id = ?
+                ORDER BY tasks.created_at DESC
+                """,
+                (g.user["id"],),
+            ).fetchall()
+
+        return render_template("tasks.html", tasks=rows)
+
+    # --------- Tasks - create ----------
+    @app.route("/tasks/create", methods=["GET", "POST"])
+    def create_task():
+        if g.user is None:
+            return redirect(url_for("login"))
+
+        if request.method == "POST":
+            title = request.form.get("title", "").strip()
+            description = request.form.get("description", "").strip()
+
+            if not title or not description:
+                flash("Title and description are required.", "error")
+                return render_template("task_form.html", mode="create")
+
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO tasks (user_id, title, description, status)
+                VALUES (?, ?, ?, ?)
+                """,
+                (g.user["id"], title, description, "pending"),
+            )
+            db.commit()
+            flash("Task created successfully.", "success")
+            return redirect(url_for("tasks"))
+
+        return render_template("task_form.html", mode="create")
+
+    # --------- Tasks - edit ----------
+    @app.route("/tasks/<int:task_id>/edit", methods=["GET", "POST"])
+    def edit_task(task_id):
+        if g.user is None:
+            return redirect(url_for("login"))
+
+        db = get_db()
+        task = db.execute(
+            """
+            SELECT * FROM tasks WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+
+        if task is None:
+            flash("Task not found.", "error")
+            return redirect(url_for("tasks"))
+
+        # Only owner or admin can edit
+        if g.user["role"] != "admin" and task["user_id"] != g.user["id"]:
+            flash("You are not allowed to edit this task.", "error")
+            return redirect(url_for("tasks"))
+
+        if request.method == "POST":
+            title = request.form.get("title", "").strip()
+            description = request.form.get("description", "").strip()
+            status = request.form.get("status", "pending")
+
+            if not title or not description:
+                flash("Title and description are required.", "error")
+                return render_template("task_form.html", mode="edit", task=task)
+
+            db.execute(
+                """
+                UPDATE tasks
+                SET title = ?, description = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (title, description, status, task_id),
+            )
+            db.commit()
+            flash("Task updated successfully.", "success")
+            return redirect(url_for("tasks"))
+
+        return render_template("task_form.html", mode="edit", task=task)
+
+    # --------- Tasks - delete ----------
+    @app.route("/tasks/<int:task_id>/delete", methods=["POST"])
+    def delete_task(task_id):
+        if g.user is None:
+            return redirect(url_for("login"))
+
+        db = get_db()
+        task = db.execute(
+            "SELECT * FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+
+        if task is None:
+            flash("Task not found.", "error")
+            return redirect(url_for("tasks"))
+
+        # Only owner or admin can delete
+        if g.user["role"] != "admin" and task["user_id"] != g.user["id"]:
+            flash("You are not allowed to delete this task.", "error")
+            return redirect(url_for("tasks"))
+
+        db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        db.commit()
+        flash("Task deleted.", "success")
+        return redirect(url_for("tasks"))
+
     return app
