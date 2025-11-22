@@ -1,15 +1,32 @@
 from flask import (
     Flask, render_template, request,
-    redirect, url_for, session, g, flash
+    redirect, url_for, session, g, flash, abort
 )
 from database import get_db
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
-
+import secrets
 
 def create_app():
     app = Flask(__name__)
     app.config["SECRET_KEY"] = "change-this-secret-key-later"
+    # --------- CSRF token helpers ----------
+    @app.before_request
+    def ensure_csrf_token():
+        # Create token for this session if missing
+        if "csrf_token" not in session:
+            session["csrf_token"] = secrets.token_hex(16)
+
+        # For POST requests, verify CSRF token
+        if request.method == "POST":
+            form_token = request.form.get("csrf_token")
+            if not form_token or form_token != session.get("csrf_token"):
+                abort(400)  # Bad Request if token missing/invalid
+
+    @app.context_processor
+    def inject_csrf_token():
+        # Allows {{ csrf_token }} inside all templates
+        return dict(csrf_token=session.get("csrf_token", ""))
 
     # --------- Load logged-in user before each request ----------
     @app.before_request
