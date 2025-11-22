@@ -6,10 +6,13 @@ from database import get_db
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 import secrets
+from datetime import datetime, timedelta
+
 
 def create_app():
     app = Flask(__name__)
     app.config["SECRET_KEY"] = "change-this-secret-key-later"
+
     # --------- CSRF token helpers ----------
     @app.before_request
     def ensure_csrf_token():
@@ -27,6 +30,40 @@ def create_app():
     def inject_csrf_token():
         # Allows {{ csrf_token }} inside all templates
         return dict(csrf_token=session.get("csrf_token", ""))
+
+    # --------- Simple login rate limit (per session) ----------
+    def is_login_blocked():
+        max_attempts = 5          # allow 5 tries
+        block_minutes = 2         # block for 2 minutes
+
+        attempts = session.get("login_attempts", 0)
+        last_attempt_str = session.get("last_login_attempt")
+
+        if last_attempt_str:
+            last_attempt = datetime.fromisoformat(last_attempt_str)
+        else:
+            last_attempt = None
+
+        now = datetime.utcnow()
+
+        # If too many attempts recently -> block
+        if attempts >= max_attempts and last_attempt:
+            if now - last_attempt < timedelta(minutes=block_minutes):
+                return True
+
+        return False
+
+    def record_login_attempt(success: bool):
+        now = datetime.utcnow().isoformat()
+
+        if success:
+            # reset on successful login
+            session["login_attempts"] = 0
+            session["last_login_attempt"] = now
+        else:
+            attempts = session.get("login_attempts", 0) + 1
+            session["login_attempts"] = attempts
+            session["last_login_attempt"] = now
 
     # --------- Load logged-in user before each request ----------
     @app.before_request
@@ -95,6 +132,11 @@ def create_app():
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if request.method == "POST":
+            # Check if this session is currently blocked
+            if is_login_blocked():
+                flash("Too many login attempts. Please try again in a few minutes.", "error")
+                return render_template("login.html")
+
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
 
@@ -104,10 +146,13 @@ def create_app():
             ).fetchone()
 
             if user is None or not check_password_hash(user["password_hash"], password):
+                # failed attempt
+                record_login_attempt(success=False)
                 flash("Invalid username or password.", "error")
                 return render_template("login.html")
 
             # login success
+            record_login_attempt(success=True)
             session.clear()
             session["user_id"] = user["id"]
             session["role"] = user["role"]
@@ -123,7 +168,7 @@ def create_app():
         flash("You have been logged out.", "success")
         return redirect(url_for("login"))
 
-        # --------- Tasks - list ----------
+    # --------- Tasks - list ----------
     @app.route("/tasks")
     def tasks():
         if g.user is None:
